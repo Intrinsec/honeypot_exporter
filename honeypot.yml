@@ -1,0 +1,5 @@
+listeners:
+  - network: tcp
+    address: ":4242"
+  - network: udp
+    address: ":4242"

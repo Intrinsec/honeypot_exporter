@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
+	"regexp"
 	"sync"
 	"time"
 
@@ -25,7 +27,7 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
-	"gopkg.in/yaml.v1"
+	"gopkg.in/yaml.v2"
 )
 
 // Namespace defines the common namespace to be used by all metrics.
@@ -79,6 +81,11 @@ func registerCollector(
 	factories[collector] = factory
 }
 
+var PROTOCOLS = map[string]bool{
+	"tcp": true,
+	"udp": true,
+}
+
 // MainCollector implements the prometheus.Collector interface.
 type MainCollector struct {
 	Collectors map[string]Collector
@@ -86,15 +93,93 @@ type MainCollector struct {
 	config     Config
 }
 
+// Config and NetConfig define the Structure of the yaml configuration file.
 type NetConfig struct {
-	Network string `yaml:"network"`
-	Address string `yaml:"address"`
+	Protocol   string
+	Address    string
+	Authorized []*net.IPNet
 }
 
 type Config struct {
-	Listeners []NetConfig `yaml:"listeners"`
+	GlobalAuthorized []*net.IPNet
+	Listeners        []NetConfig
 }
 
+// Parses string into net.IPNet
+// Will tranform when a single IP is given by taking the CIDR annotation with /32
+func StrToIPNet(ip string) (*net.IPNet, error) {
+	matched, err := regexp.MatchString(".*/[0-9]{1,2}", ip)
+	if err != nil {
+		return nil, err
+	}
+	if !matched {
+		ip = ip + "/32"
+	}
+	_, ipnet, err := net.ParseCIDR(ip)
+	if err != nil {
+		return nil, err
+	}
+	return ipnet, nil
+
+}
+
+// Implement the yaml.v2 unmarshalling interface (https://godoc.org/gopkg.in/yaml.v2#Unmarshaler)
+// to decode the yaml file into custome types.
+// Inspired from https://sharpend.io/blog/decoding-yaml-in-go/.
+// Uses auxiliary struct to suport customs decoding.
+func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
+
+	var aux struct {
+		GlobalAuthorized []string `yaml:"authorized"`
+		Listeners        []struct {
+			Protocol   string   `yaml:"protocol"`
+			Address    string   `yaml:"address"`
+			Authorized []string `yaml:"authorized"`
+		}
+	}
+
+	if err := unmarshal(&aux); err != nil {
+		return err
+	}
+
+	globalAuthorized := make([]*net.IPNet, len(aux.GlobalAuthorized))
+	for i, ip := range aux.GlobalAuthorized {
+
+		ipnet, err := StrToIPNet(ip)
+		if err != nil {
+			return err
+		}
+		globalAuthorized[i] = ipnet
+	}
+
+	listeners := make([]NetConfig, len(aux.Listeners))
+	for i, nc := range aux.Listeners {
+		if !PROTOCOLS[nc.Protocol] {
+			return fmt.Errorf("unauthorized protocol : %s", nc.Protocol)
+		}
+
+		authorized := make([]*net.IPNet, len(nc.Authorized))
+		for j, ip := range nc.Authorized {
+			ipnet, err := StrToIPNet(ip)
+			if err != nil {
+				return err
+			}
+			authorized[j] = ipnet
+		}
+
+		listeners[i].Protocol = nc.Protocol
+		listeners[i].Address = nc.Address
+		listeners[i].Authorized = authorized
+	}
+
+	c.GlobalAuthorized = globalAuthorized
+	c.Listeners = listeners
+
+	return nil
+
+}
+
+// Reads the yaml file and unmarshall it.
 func ParseConfig(path string) (Config, error) {
 	cfgFile, err := ioutil.ReadFile(path)
 	cfg := Config{}

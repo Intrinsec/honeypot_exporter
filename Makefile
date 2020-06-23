@@ -135,3 +135,6 @@ $(PROMTOOL):
 	cp $(PROMTOOL_TMP)/prometheus-$(PROMTOOL_VERSION).$(GO_BUILD_PLATFORM)/promtool $(FIRST_GOPATH)/bin/promtool
 	rm -r $(PROMTOOL_TMP)
 
+.PHONY: test-functional
+test-functional:
+	sh test-functional.sh

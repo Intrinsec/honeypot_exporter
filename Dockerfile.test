@@ -1,0 +1,10 @@
+FROM python:3.8-slim
+
+WORKDIR /tests
+
+ADD https://github.com/ufoscout/docker-compose-wait/releases/download/2.5.1/wait /bin/wait
+RUN chmod +x /bin/wait
+
+RUN pip install scapy requests pytest
+
+COPY test_honeypot_exporter.py test_honeypot_exporter.py

@@ -1,0 +1,16 @@
+authorized:
+  - 172.20.0.20
+  - 172.21.0.0/24
+
+listeners:
+  - protocol: tcp
+    address: ":4242"
+    authorized:
+      - 172.20.0.15
+
+  - protocol: udp
+    address: ":4242"
+    authorized:
+      - 172.20.0.30
+      - 172.23.0.0/24
+

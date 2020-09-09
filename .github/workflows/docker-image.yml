@@ -9,6 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: debug
+        run: echo ${{ github.repository_owner }}
+      - name: debug
+        run: echo ${{ secrets.GITHUB_TOKEN }}
       -
         name: Build honeypot-exporter binaries
         run: make common-crossbuild

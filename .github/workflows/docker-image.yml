@@ -32,7 +32,9 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: bibogdanov/honeypot-exporter:1.0.0
+          tags: |
+            intrinsec/honeypot-exporter:latest
+            intrinsec/honeypot-exporter:1.0.0
       -
         name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}

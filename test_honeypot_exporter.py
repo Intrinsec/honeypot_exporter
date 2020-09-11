@@ -13,25 +13,27 @@ HONEYPOT_PORT = 4242
 TEST_CLIENT_IP = "172.20.0.20"
 
 
-def send_udp_packet(src: str, dst: str):
+def send_udp_packet(src: str, dst: str, port: int = HONEYPOT_PORT):
     """Use scapy to send crafted udp packet (with spoofed ip source)."""
     payload = "test"
-    packet = IP(src=src, dst=dst) / UDP(dport=HONEYPOT_PORT) / payload
+    packet = IP(src=src, dst=dst) / UDP(dport=port) / payload
     send(packet)
 
 
-def send_tcp_packet(dst: str):
+def send_tcp_packet(dst: str, port: int = HONEYPOT_PORT):
     """Uses built-in socket to properly create a tcp connection."""
     payload = "test"
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((dst, HONEYPOT_PORT))
+    s.connect((dst, port))
     s.send(payload.encode("utf-8"))
     s.close()
 
 
-def exporter_line(auth: str, dst: str, proto: str, count: str):
+def exporter_line(
+    auth: str, dst: str, proto: str, count: str, port: int = 4242
+):
     """Format the exporter metric line with wanted arguments."""
-    return f'honeypot_{auth}_connections_total{{dst="{dst}",port="4242",proto="{proto}"}} {count}'
+    return f'honeypot_{auth}_connections_total{{dst="{dst}",port="{port}",proto="{proto}"}} {count}'
 
 
 def test_honeypot_exporter_listeners():
@@ -44,6 +46,16 @@ def test_honeypot_exporter_listeners():
     assert exporter_line("authorized", HONEYPOT_IP, "tcp", 1) in r.text
 
     send_udp_packet(src=TEST_CLIENT_IP, dst=HONEYPOT_IP)
+    r = requests.get(HONEYPOT_EXPORTER_URL)
+    # As we are sending crafted udp packet, the honeypot exported somehow will
+    # not display the dst ip on the exported metric, but this string "[::]"
+    assert exporter_line("authorized", "[::]", "udp", 1) in r.text
+
+    send_tcp_packet(dst=HONEYPOT_IP, port=4243)
+    r = requests.get(HONEYPOT_EXPORTER_URL)
+    assert exporter_line("authorized", HONEYPOT_IP, "tcp", 1) in r.text
+
+    send_udp_packet(src=TEST_CLIENT_IP, dst=HONEYPOT_IP, port=4243)
     r = requests.get(HONEYPOT_EXPORTER_URL)
     # As we are sending crafted udp packet, the honeypot exported somehow will
     # not display the dst ip on the exported metric, but this string "[::]"

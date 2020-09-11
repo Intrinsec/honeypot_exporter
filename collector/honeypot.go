@@ -138,14 +138,16 @@ func (c *honeypotCollector) startListeners() {
 	var ListenersAuthorized = make(map[string][]*net.IPNet)
 
 	for _, listener := range c.config.Listeners {
-		level.Info(c.logger).Log(
-			"msg", "new listener",
-			"protocol", listener.Protocol,
-			"address", listener.Address,
-		)
-		var key = listener.Protocol + listener.Address
-		ListenersAuthorized[key] = append(c.config.GlobalAuthorized, listener.Authorized...)
-		go Listener(listener.Protocol, listener.Address, results, c.logger)
+		for _, proto := range strings.Split(listener.Protocol, ",") {
+			level.Info(c.logger).Log(
+				"msg", "new listener",
+				"protocol", proto,
+				"address", listener.Address,
+			)
+			var key = proto + listener.Address
+			ListenersAuthorized[key] = append(c.config.GlobalAuthorized, listener.Authorized...)
+			go Listener(proto, listener.Address, results, c.logger)
+		}
 	}
 
 	go func() {

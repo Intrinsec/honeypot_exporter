@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"net"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -154,10 +155,11 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	listeners := make([]NetConfig, len(aux.Listeners))
 	for i, nc := range aux.Listeners {
-		if !PROTOCOLS[nc.Protocol] {
-			return fmt.Errorf("unauthorized protocol : %s", nc.Protocol)
+		for _, proto := range strings.Split(nc.Protocol, ",") {
+			if !PROTOCOLS[proto] {
+				return fmt.Errorf("unauthorized protocol : %s", proto)
+			}
 		}
-
 		authorized := make([]*net.IPNet, len(nc.Authorized))
 		for j, ip := range nc.Authorized {
 			ipnet, err := StrToIPNet(ip)

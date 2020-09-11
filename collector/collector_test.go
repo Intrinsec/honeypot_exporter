@@ -45,7 +45,7 @@ func TestParseConfig(t *testing.T) {
 	lenGlobal := len(config.GlobalAuthorized)
 	assert.Equal(t, lenGlobal, 2, fmt.Sprintf("global authorized is len %d", lenGlobal))
 	lenListeners := len(config.Listeners)
-	assert.Equal(t, lenListeners, 2, fmt.Sprintf("listeners is len %d", lenListeners))
+	assert.Equal(t, lenListeners, 3, fmt.Sprintf("listeners is len %d", lenListeners))
 }
 
 //Mock a net.Addr interface

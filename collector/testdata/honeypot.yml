@@ -14,3 +14,7 @@ listeners:
       - 172.20.0.30
       - 172.23.0.0/24
 
+  - protocol: tcp,udp
+    address: ":4243"
+    authorized:
+      - 172.50.0.0/24

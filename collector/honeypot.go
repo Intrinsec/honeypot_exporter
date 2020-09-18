@@ -16,26 +16,27 @@
 package collector
 
 import (
-	"net"
-	"strings"
-
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
+	"net"
+	"strconv"
+	"strings"
 )
 
 type labels struct {
+	auth  bool
 	proto string
-	src   string
 	dst   string
 	port  string
 }
 
 type honeypotCollector struct {
-	current typedDesc
-	logger  log.Logger
-	config  Config
-	metrics map[labels]uint64
+	authorized   typedDesc
+	unauthorized typedDesc
+	logger       log.Logger
+	config       Config
+	metrics      map[labels]uint64
 }
 
 func init() {
@@ -46,10 +47,15 @@ func init() {
 func NewHoneyPotCollector(logger log.Logger, config Config) (Collector, error) {
 
 	hc := &honeypotCollector{
-		current: typedDesc{prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, "", "connections_total"),
-			"honeypot number of new connections or udp packets",
-			[]string{"proto", "src", "dst", "port"}, nil,
+		authorized: typedDesc{prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "authorized_connections_total"),
+			"honeypot number of new authorized connections or udp packets",
+			[]string{"proto", "dst", "port"}, nil,
+		), prometheus.CounterValue},
+		unauthorized: typedDesc{prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "", "unauthorized_connections_total"),
+			"honeypot number of new unauthorized connections or udp packets",
+			[]string{"proto", "dst", "port"}, nil,
 		), prometheus.CounterValue},
 		logger:  logger,
 		config:  config,
@@ -64,7 +70,11 @@ func NewHoneyPotCollector(logger log.Logger, config Config) (Collector, error) {
 func (c *honeypotCollector) Update(ch chan<- prometheus.Metric) (err error) {
 
 	for k, v := range c.metrics {
-		ch <- c.current.mustNewConstMetric(float64(v), k.proto, k.src, k.dst, k.port)
+		if k.auth {
+			ch <- c.authorized.mustNewConstMetric(float64(v), k.proto, k.dst, k.port)
+		} else {
+			ch <- c.unauthorized.mustNewConstMetric(float64(v), k.proto, k.dst, k.port)
+		}
 	}
 
 	return nil
@@ -75,10 +85,10 @@ type connEvent struct {
 	remote net.Addr
 }
 
-func Listener(network, address string, res chan<- connEvent, logger log.Logger) {
+func Listener(protocol, address string, res chan<- connEvent, logger log.Logger) {
 
-	if strings.HasPrefix(network, "tcp") {
-		l, err := net.Listen(network, address)
+	if strings.HasPrefix(protocol, "tcp") {
+		l, err := net.Listen(protocol, address)
 		if err != nil {
 
 			return
@@ -87,16 +97,16 @@ func Listener(network, address string, res chan<- connEvent, logger log.Logger) 
 		for {
 			c, err := l.Accept()
 			if err != nil {
-				level.Error(logger).Log("network", network, "address", address, "err", err)
+				level.Error(logger).Log("protocol", protocol, "address", address, "err", err)
 				continue
 			}
 			res <- connEvent{c.LocalAddr(), c.RemoteAddr()}
 			c.Close()
 		}
 	} else {
-		l, err := net.ListenPacket(network, address)
+		l, err := net.ListenPacket(protocol, address)
 		if err != nil {
-			level.Error(logger).Log("network", network, "address", address, "err", err)
+			level.Error(logger).Log("protocol", protocol, "address", address, "err", err)
 			return
 		}
 		buf := make([]byte, 1)
@@ -105,7 +115,7 @@ func Listener(network, address string, res chan<- connEvent, logger log.Logger) 
 
 			_, addr, err := l.ReadFrom(buf)
 			if err != nil {
-				level.Error(logger).Log("network", network, "address", address, "err", err)
+				level.Error(logger).Log("protocol", protocol, "address", address, "err", err)
 				continue
 			}
 			res <- connEvent{l.LocalAddr(), addr}
@@ -125,14 +135,19 @@ func AddrSplit(addr net.Addr) (string, string) {
 func (c *honeypotCollector) startListeners() {
 
 	results := make(chan connEvent, 100)
+	var ListenersAuthorized = make(map[string][]*net.IPNet)
 
 	for _, listener := range c.config.Listeners {
-		level.Info(c.logger).Log(
-			"msg", "new listener",
-			"network", listener.Network,
-			"address", listener.Address,
-		)
-		go Listener(listener.Network, listener.Address, results, c.logger)
+		for _, proto := range strings.Split(listener.Protocol, ",") {
+			level.Info(c.logger).Log(
+				"msg", "new listener",
+				"protocol", proto,
+				"address", listener.Address,
+			)
+			var key = proto + listener.Address
+			ListenersAuthorized[key] = append(c.config.GlobalAuthorized, listener.Authorized...)
+			go Listener(proto, listener.Address, results, c.logger)
+		}
 	}
 
 	go func() {
@@ -140,17 +155,38 @@ func (c *honeypotCollector) startListeners() {
 			r := <-results
 			src, _ := AddrSplit(r.remote)
 			dst, port := AddrSplit(r.local)
+			proto := r.local.Network()
 
-			key := labels{
-				proto: r.local.Network(),
-				src:   src,
+			ipSrc := net.ParseIP(src)
+
+			var key = proto + ":" + port
+			networks := ListenersAuthorized[key]
+
+			auth := false
+			for _, netw := range networks {
+				if netw.Contains(ipSrc) {
+					auth = true
+				}
+			}
+			level.Info(c.logger).Log(
+				"msg", "new connection",
+				"authorized", strconv.FormatBool(auth),
+				"protocol", proto,
+				"port", port,
+				"source", src,
+				"destination", dst,
+			)
+
+			lab := labels{
+				auth:  auth,
+				proto: proto,
 				dst:   dst,
 				port:  port,
 			}
-			if val, ok := c.metrics[key]; ok {
-				c.metrics[key] = val + 1
+			if val, ok := c.metrics[lab]; ok {
+				c.metrics[lab] = val + 1
 			} else {
-				c.metrics[key] = 1
+				c.metrics[lab] = 1
 			}
 			level.Debug(c.logger).Log("rx", key)
 		}

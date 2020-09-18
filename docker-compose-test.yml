@@ -1,0 +1,35 @@
+version: "3"
+
+services:
+  honeypot:
+    build: .
+    volumes:
+      - ./collector/testdata/honeypot.yml:/etc/honeypot.yml
+    command: ["--honeypot.config", "/etc/honeypot.yml"]
+    networks:
+      honeypot:
+        ipv4_address: 172.20.0.10
+
+  honeypot-exporter-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      WAIT_HOSTS: honeypot:9733
+      WAIT_HOSTS_TIMEOUT: "30"
+    depends_on:
+      - honeypot
+    entrypoint: sh -c "/bin/wait && pytest -s"
+    networks:
+      honeypot:
+        ipv4_address: 172.20.0.20
+
+# A custom network in ipam mode with a custom subnet is specified
+# so that we can set an invariant ip address to the honeypot
+# see https://docs.docker.com/compose/compose-file/#ipam
+networks:
+  honeypot:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16

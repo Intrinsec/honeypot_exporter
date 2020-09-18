@@ -1,3 +1,4 @@
+# -*- mode: Makefile -*-
 # Copyright 2018 The Prometheus Authors
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -204,6 +205,7 @@ common-build: promu
 	GO111MODULE=$(GO111MODULE) $(PROMU) build --prefix $(PREFIX) $(PROMU_BINARIES)
 
 .PHONY: common-crossbuild
+common-crossbuild: promu
 	@echo ">> cross-building binaries"
 	GO111MODULE=$(GO111MODULE) $(PROMU) crossbuild -p linux/amd64 -p linux/arm64 -p windows/amd64 -p windows/386 -p netbsd/amd64
 

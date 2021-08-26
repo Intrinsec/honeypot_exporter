@@ -34,7 +34,7 @@ jobs:
           push: true
           tags: |
             intrinsec/honeypot-exporter:latest
-            intrinsec/honeypot-exporter:1.0.0
+            intrinsec/honeypot-exporter:1.0.1
       -
         name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
